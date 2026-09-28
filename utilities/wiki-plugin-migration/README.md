@@ -34,7 +34,9 @@ python3 migrate.py /path/to/any-project --apply         # apply reviewed plan
   `AGENTS.md`. Preserves custom prose and updates exact old wiki path references.
 - Ensures `.llm-wiki/` is excluded locally through Git's `info/exclude`,
   resolved using `git rev-parse --git-path info/exclude`, matching the plugin.
-  Respects existing effective exclusions and leaves shared `.gitignore` and `wiki/.gitignore` unchanged.
+  Respects existing effective exclusions and leaves shared root `.gitignore` unchanged. A stock `wiki/.gitignore` is
+  retired only when the legacy wiki directory can be removed completely; it
+  remains when another wiki or project file still needs that directory.
 - Checks retained active configuration, instructions, scripts and CI workflows
   for references to removed tooling or the old wiki path, stopping for review.
 
@@ -180,3 +182,34 @@ After a rename, use its original namespace with `--repo-name` if running init;
 the migration prints this reminder. Startup and init currently infer namespaces
 differently. Review missing schema/index/log files before relying on the memory
 snapshot. An already-initialized init result alone does not verify exclusion.
+
+## Complete template cleanup and remaining directories
+
+The migration inventories both committed template files and generated artifacts:
+
+- Exact upstream `features/README.md`, `features/.gitkeep`, and
+  `docs/adding-a-feature.md` are retired along with the feature infrastructure.
+- A generated `wiki/WIKI-INDEX.md` loses only the migrated wiki's registration.
+  If that was its only entry, the file is removed. Other wiki entries survive;
+  a customized index that does not match the generated format is preserved.
+- A template-format `.llm-wiki-template-log.md` is backed up and removed. An empty
+  `.features-enabled` is removed after retiring its agent-comms entry; other
+  feature registrations are preserved.
+- Known template directories are removed bottom-up using `rmdir`, never recursive
+  deletion. `.DS_Store` files are backed up and removed only when they are the
+  final residue in an otherwise removable template directory. Directory paths
+  and original modes are recorded in the journal and restored on rollback.
+- Unknown project files keep their containing directories. Preview and apply
+  report preserved files in `scripts/`, `wiki/`, and `features/` explicitly.
+  In particular, `scripts/agent-msg` is separate live-session messaging code,
+  not the template agent-comms feature, and is not deleted merely for residing
+  under `scripts/`.
+
+This cleanup also works on a repository already migrated to `.llm-wiki`; rerun
+preview to see the leftover-artifact cleanup plan. Do not assume every folder
+named `scripts`, `wiki`, or `features` is exclusively template-owned.
+
+For manual recovery, restore journaled directories in parent-first order with
+recorded modes before restoring backed-up files and moving the wiki back. Empty
+directory removal itself needs no Git staging; tracked artifact deletions are
+included in `migration-paths.nul`.

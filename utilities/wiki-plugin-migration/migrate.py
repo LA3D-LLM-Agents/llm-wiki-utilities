@@ -12,6 +12,7 @@ import subprocess
 import sys
 import tempfile
 from template_cleanup import cleanup, reference_catalog
+import retired_directories
 
 
 class MigrationError(Exception):
@@ -169,7 +170,7 @@ def local_exclude_plan(root):
     return [('.git/info/exclude', before, after)]
 
 
-def apply(root, changes, source, target, backup_parent):
+def apply(root, changes, source, target, backup_parent, directories=()):
     lock = None
     if any(name == '.git/info/exclude' for name, _, _ in changes):
         path = planned_path(root, '.git/info/exclude')
@@ -179,7 +180,7 @@ def apply(root, changes, source, target, backup_parent):
             pass
         lock = candidate
     try:
-        return apply_transaction(root, changes, source, target, backup_parent)
+        return apply_transaction(root, changes, source, target, backup_parent, directories)
     finally:
         if lock is not None:
             lock.unlink()
@@ -207,7 +208,7 @@ def staging_paths(root, changes):
     return sorted(set(paths))
 
 
-def apply_transaction(root, changes, source, target, backup_parent):
+def apply_transaction(root, changes, source, target, backup_parent, directories=()):
     # Backups include the original bytes and modes; the wiki itself is renamed intact.
     backup_parent.mkdir(parents=True, exist_ok=True)
     backup = Path(tempfile.mkdtemp(prefix="wiki-migration-", dir=backup_parent))
@@ -222,12 +223,13 @@ def apply_transaction(root, changes, source, target, backup_parent):
             dest.parent.mkdir(parents=True, exist_ok=True)
             dest.write_bytes(before)
     journal = {"repo": str(root), "wiki_from": str(source) if source else None,
-               "wiki_to": str(target), "files": records, "state": "prepared"}
+               "wiki_to": str(target), "files": records, "directories": list(directories), "state": "prepared"}
     journal_path = backup / "journal.json"
     journal_path.write_text(json.dumps(journal, indent=2) + "\n")
     print(f"Backup and recovery journal: {backup}", flush=True)
     pathspec = backup / "migration-paths.nul"
     completed, moved = [], False
+    removed_dirs = []
     try:
         # Recheck all inputs after backing up, before the first mutation.
         for name, before, after in changes:
@@ -247,6 +249,9 @@ def apply_transaction(root, changes, source, target, backup_parent):
             else:
                 atomic_write(path, after, record["mode"])
             completed.append((name, before, record["mode"]))
+        for entry in directories:
+            safe_path(root, entry['path']).rmdir()
+            removed_dirs.append(entry)
         git(root, 'check-ignore', '--no-index', '--quiet', '.llm-wiki/')
         if moved:
             validate_checkout(target)
@@ -258,6 +263,10 @@ def apply_transaction(root, changes, source, target, backup_parent):
         journal_path.write_text(json.dumps(journal, indent=2) + "\n")
     except BaseException:
         pathspec.unlink(missing_ok=True)
+        for entry in reversed(removed_dirs):
+            path = safe_path(root, entry["path"])
+            path.mkdir()
+            path.chmod(entry["mode"])
         for name, before, mode in reversed(completed):
             path = planned_path(root, name)
             if before is None:
@@ -326,6 +335,8 @@ def main(argv=None):
     if git(root, "diff", "--cached", "--name-only"):
         raise MigrationError("The parent repository has staged changes; commit or unstage them before migration")
     source, target, wiki_state = wiki_plan(root, args.wiki_slug)
+    catalog = None
+    directories = []
     if args.wiki_only:
         changes = []
 
@@ -344,6 +355,8 @@ def main(argv=None):
             print("Migration: upstream template to llm-wiki plugin")
     # Local exclusions apply to every migration mode; shared .gitignore stays untouched.
     changes = [change for change in changes if change[0] not in {".gitignore", "wiki/.gitignore"}]
+    if catalog is not None:
+        changes, directories = retired_directories.plan(root, changes, source, catalog, safe_path)
     changes.extend(local_exclude_plan(root))
     deletes = sum(after is None for _, _, after in changes)
     print(f"Repository: {root}\nWiki: {wiki_state}")
@@ -353,7 +366,17 @@ def main(argv=None):
     if args.verbose:
         for name, before, after in changes:
             print(f"  {'DELETE' if after is None else 'WRITE '} {name}")
-    if not changes and not source:
+    if directories:
+        print(f"Empty template directories to remove: {len(directories)}")
+        if args.verbose:
+            for entry in directories:
+                print("  RMDIR " + entry["path"])
+    remaining = retired_directories.remaining_files(root, changes, source)
+    if remaining:
+        print('Preserved files in scripts/wiki/features (not automatically disposable):')
+        for name in remaining:
+            print('  ' + name)
+    if not changes and not source and not directories:
         print("No changes needed.")
         print_attachment_guidance(target)
         return 0
@@ -363,7 +386,7 @@ def main(argv=None):
     backup_parent = args.backup_dir.expanduser().resolve()
     if backup_parent == root or root in backup_parent.parents:
         raise MigrationError("Choose a backup directory outside the target repository")
-    backup = apply(root, changes, source, target, backup_parent)
+    backup = apply(root, changes, source, target, backup_parent, directories)
     print("Migration complete. Changes are unstaged; review git diff before committing.")
     print("Plugins must be installed separately. No commits, pushes, or network operations were performed.")
     print("Use the plugin wiki-ask/wiki-enroll skills for agent communication; legacy /ask is retired.")

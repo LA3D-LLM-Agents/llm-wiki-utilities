@@ -273,6 +273,64 @@ class GenericMigration(unittest.TestCase):
         self.assertEqual(before, self.snapshot())
         self.assertFalse(list((self.base / 'backups').glob('*/migration-paths.nul')))
 
+    def install_cleanup_residue(self):
+        self.write('features/README.md', upstream('features/README.md', self.slug))
+        self.write('features/.gitkeep', b'')
+        self.write('docs/adding-a-feature.md', upstream('docs/adding-a-feature.md', self.slug))
+        self.write('features/.DS_Store', b'mac metadata')
+        (self.root / 'features/agent-comms/code').mkdir(parents=True)
+        (self.root / 'features/agent-comms/ci').mkdir()
+        self.write('wiki/agents/claude-code/.DS_Store', b'mac metadata')
+        (self.root / 'wiki/agents/claude-code/templates').mkdir()
+        self.write('wiki/.gitignore', upstream('wiki/.gitignore', self.slug))
+        self.write('wiki/WIKI-INDEX.md', ('---\ntype: index\n---\n\n# Wiki Index — wiki\n\n## Wikis\n'
+                   f'- [[Home_{self.slug}]] — Custom Project Title wiki\n').encode())
+        self.write('.llm-wiki-template-log.md', b'## [2026-07-18] pulled template @55d94d9 - 1 file(s) updated\n- wiki/init-wiki.sh\n\n')
+        self.write('.features-enabled', b'agent-comms\n')
+        self.write('scripts/lib/common.sh', upstream('scripts/lib/common.sh', self.slug))
+
+    def test_removes_generated_residue_and_empty_template_trees(self):
+        self.install_cleanup_residue()
+        self.run_tool('--apply')
+        for name in ('wiki', 'scripts', 'features', 'docs', '.features-enabled', '.llm-wiki-template-log.md'):
+            self.assertFalse((self.root / name).exists(), name)
+        self.assertTrue((self.root / '.llm-wiki/Home.md').exists())
+        self.run_tool('--apply')
+        self.assertEqual(1, len(list((self.base / 'backups').iterdir())))
+
+    def test_project_script_keeps_scripts_directory_and_is_reported(self):
+        self.install_cleanup_residue()
+        self.write('scripts/agent-msg/agents-send.sh', b'project messaging tool')
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            m.main([str(self.root), '--apply', '--backup-dir', str(self.base / 'backups')])
+        self.assertIn('scripts/agent-msg/agents-send.sh', out.getvalue())
+        self.assertEqual(b'project messaging tool', (self.root / 'scripts/agent-msg/agents-send.sh').read_bytes())
+        self.assertFalse((self.root / 'scripts/lib').exists())
+
+    def test_generated_index_preserves_other_wiki_entry(self):
+        self.install_cleanup_residue()
+        with (self.root / 'wiki/WIKI-INDEX.md').open('ab') as out:
+            out.write(b'- [[Home_other]] \xe2\x80\x94 Other wiki\n')
+        self.run_tool('--apply')
+        index = (self.root / 'wiki/WIKI-INDEX.md').read_text()
+        self.assertIn('Home_other', index)
+        self.assertNotIn(f'Home_{self.slug}', index)
+
+    def test_directory_removal_rolls_back_with_original_modes(self):
+        self.install_cleanup_residue()
+        (self.root / 'features/agent-comms').chmod(0o750)
+        before = self.snapshot()
+        dirs = {str(p.relative_to(self.root)): p.stat().st_mode & 0o777
+                for p in self.root.rglob('*') if p.is_dir() and '.git' not in p.relative_to(self.root).parts}
+        with patch.object(m, 'staging_paths', side_effect=OSError('after directory cleanup')):
+            with self.assertRaisesRegex(OSError, 'after directory cleanup'):
+                self.run_tool('--apply')
+        self.assertEqual(before, self.snapshot())
+        for name, mode in dirs.items():
+            self.assertTrue((self.root / name).is_dir(), name)
+            self.assertEqual(mode, (self.root / name).stat().st_mode & 0o777)
+
     def test_preview(self):
         before = self.snapshot()
         self.run_tool()

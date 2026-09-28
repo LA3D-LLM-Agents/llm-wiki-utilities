@@ -90,3 +90,24 @@ files were excluded. Additional tests cover created files with wildcard/newline
 names, empty staging lists for wiki-only migration and rollback when staging-list
 generation fails. Current default suite: 32 passed, 16 optional tests skipped
 (13 historical-profile and 3 external-plugin audit checks).
+
+## Remaining template artifacts — 2026-09-28
+
+Re-inventoried upstream template HEAD 49f0fc3 and its reachable history, including
+instantiate.sh, init-wiki.sh registration generation, feature installation and
+template update logging. Catalog now covers 252 paths across 144 revisions.
+The previous cleanup omitted feature documentation, generated registry/log
+artifacts and empty-directory removal; these were real coverage gaps.
+
+Default suite: 36 passed; 16 optional checks skipped. New tests cover complete
+removal of known template trees/metadata, multiple wiki registrations, preservation
+and reporting of project scripts, and byte/mode restoration after an injected
+failure following directory removal.
+
+Copied the actual scripts/wiki/features residue and template feature guide from
+the local llm-wiki-vision checkout into a disposable Git fixture with a separate
+fixture wiki. Apply removed the legacy wiki/features trees, stock docs guide and
+empty template scripts subdirectories; all three agent-msg files were unchanged.
+Executing the generated staging command selected cleanup deletions and excluded
+agent-msg. This was a residue-copy check, not a migration of the live project or
+a complete clone of its research data. The live checkout was inspected only.

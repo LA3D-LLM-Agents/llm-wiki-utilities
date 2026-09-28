@@ -16,7 +16,7 @@ HOOKS = {
 
 def owned(name):
     return (name not in SHARED and (
-        name == 'llm-wiki.md' or name.startswith(('wiki/', 'scripts/', '.claude/', '.cursor/', 'features/agent-comms/'))
+        name in {'llm-wiki.md', 'features/README.md', 'features/.gitkeep', 'docs/adding-a-feature.md', '.cursorrules'} or name.startswith(('wiki/', 'scripts/', '.claude/', '.cursor/', 'features/agent-comms/'))
         or name in {'.github/workflows/test-harness.yml', '.github/workflows/agent-comms.yml', 'CLAUDE.md.template', 'README.md.template', '.cursorrules.template'}))
 
 
@@ -35,7 +35,7 @@ def reference_catalog(repo, all_history=False):
             name = raw_name.decode()
             if kind != 'blob' or mode not in ('100644', '100755'):
                 continue
-            if owned(name) or name in {'CLAUDE.md', '.claude/settings.json'}:
+            if owned(name) or name in {'CLAUDE.md', '.claude/settings.json', 'wiki/.gitignore'}:
                 paths.setdefault(name, set()).add(oid)
     objects = sorted({oid for values in paths.values() for oid in values})
     batch = subprocess.run(['git', '-C', str(repo), 'cat-file', '--batch'],
@@ -74,6 +74,7 @@ def cleanup(root, source, target, slug, catalog, safe_path, error):
     originals = {name: {variant for encoded in versions
                         for variant in render_variants(base64.b64decode(encoded, validate=True), slug)}
                  for name, versions in catalog['files'].items()}
+    originals.setdefault('.cursorrules', set()).update(originals.get('.cursorrules.template', set()))
     for installed, template in HOOKS.items():
         originals.setdefault(installed, set()).update(originals.get(template, set()))
     # Map the separately installed feature payload to its upstream bytes.
@@ -206,7 +207,26 @@ def cleanup(root, source, target, slug, catalog, safe_path, error):
         after = b''.join(line for line in before.splitlines(keepends=True)
                          if line.strip() != b'agent-comms')
         if after != before:
-            changes['.features-enabled'] = (before, after)
+            changes['.features-enabled'] = (before, after if after.strip() else None)
+
+    # init-wiki.sh generates this registry; it is not a tracked template blob.
+    before = read('wiki/WIKI-INDEX.md')
+    if before is not None:
+        header = '---\ntype: index\n---\n\n# Wiki Index — wiki\n\n## Wikis\n'.encode()
+        if before.startswith(header):
+            lines = before[len(header):].splitlines(keepends=True)
+            if all(re.fullmatch(r'- \[\[Home_[^\]\r\n]+\]\] — [^\r\n]+\n?'.encode(), line) for line in lines):
+                prefix = f'- [[Home_{slug}]] — '.encode()
+                kept = [line for line in lines if not line.startswith(prefix)]
+                if kept != lines:
+                    changes['wiki/WIKI-INDEX.md'] = (before, header + b''.join(kept) if kept else None)
+    before = read('.llm-wiki-template-log.md')
+    if before is not None:
+        pattern = (rb'(?:# llm-wiki template sync log\n\n)?'
+                   rb'(?:## \[\d{4}-\d{2}-\d{2}\] pulled template @[0-9a-f]+ - \d+ file\(s\) updated\n'
+                   rb'(?:- [^\r\n]+\n)*\n*)+')
+        if re.fullmatch(pattern, before):
+            changes['.llm-wiki-template-log.md'] = (before, None)
 
     # Unknown/custom feature files and blocks must not silently survive as
     # a second implementation alongside the plugin's ask/enroll skills.
