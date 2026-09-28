@@ -39,9 +39,30 @@ python3 migrate.py /path/to/any-project --apply         # apply reviewed plan
   for references to removed tooling or the old wiki path, stopping for review.
 
 The script never commits, pushes, installs a plugin or updates wiki page contents.
-Apply leaves the parent changes unstaged and prints the Git commands to review,
-stage, and commit them. The printed `git add -A` stages unrelated changes too;
-review first or use explicit paths. Install the appropriate plugin adapter
+Apply leaves the parent changes unstaged. After success, it saves
+`migration-paths.nul` beside the backup journal and prints commands to review,
+stage those exact paths, commit, and push:
+
+```sh
+git status --short
+git diff
+git --literal-pathspecs add -A --pathspec-from-file=/path/to/backup/migration-paths.nul --pathspec-file-nul
+git diff --cached
+git commit -m "Migrate template wiki tooling to plugin"
+git push
+```
+
+The actual output includes a quoted `cd` and the exact staging-file path. The
+NUL-delimited list handles spaces, newlines and wildcard characters literally.
+It includes tracked migration deletions and eligible created/modified files;
+it excludes unrelated files, Git-local metadata, the separate wiki, ignored
+untracked files, and untracked files already deleted by migration. If nothing
+needs staging, an empty list is saved and no add/commit/push command is printed.
+Commands are printed only, never executed by migration. Review before running:
+existing or subsequent edits within listed files will also be staged, and a
+commit includes anything else you may already have staged. Use this list before
+making further changes to the listed paths. Failed/rolled-back migrations do
+not leave an actionable staging file. Previews do not create one. Install the appropriate plugin adapter
 separately following the plugin repository's instructions, then start a new agent
 session. Close agents using the target checkout while applying.
 

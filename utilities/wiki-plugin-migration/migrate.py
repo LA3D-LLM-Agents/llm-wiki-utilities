@@ -185,6 +185,28 @@ def apply(root, changes, source, target, backup_parent):
             lock.unlink()
 
 
+def staging_paths(root, changes):
+    result = subprocess.run(['git', '-C', str(root), 'ls-files', '-z'],
+                            capture_output=True, check=True)
+    tracked = set(result.stdout.split(b'\0'))
+    paths = []
+    for name, before, after in changes:
+        if PurePosixPath(name).parts[0] in {'.git', '.llm-wiki'}:
+            continue
+        encoded = os.fsencode(name)
+        if encoded in tracked:
+            paths.append(encoded)
+        elif after is not None:
+            ignored = subprocess.run(['git', '-C', str(root), 'check-ignore', '--quiet', '--', name],
+                                     capture_output=True)
+            if ignored.returncode == 1:
+                paths.append(encoded)
+            elif ignored.returncode != 0:
+                raise MigrationError(f'Cannot check staging eligibility: {name}')
+        # Already-deleted untracked files have nothing to stage.
+    return sorted(set(paths))
+
+
 def apply_transaction(root, changes, source, target, backup_parent):
     # Backups include the original bytes and modes; the wiki itself is renamed intact.
     backup_parent.mkdir(parents=True, exist_ok=True)
@@ -204,6 +226,7 @@ def apply_transaction(root, changes, source, target, backup_parent):
     journal_path = backup / "journal.json"
     journal_path.write_text(json.dumps(journal, indent=2) + "\n")
     print(f"Backup and recovery journal: {backup}", flush=True)
+    pathspec = backup / "migration-paths.nul"
     completed, moved = [], False
     try:
         # Recheck all inputs after backing up, before the first mutation.
@@ -227,9 +250,14 @@ def apply_transaction(root, changes, source, target, backup_parent):
         git(root, 'check-ignore', '--no-index', '--quiet', '.llm-wiki/')
         if moved:
             validate_checkout(target)
+        paths = staging_paths(root, changes)
+        pathspec.write_bytes(b''.join(path + b'\0' for path in paths))
+        journal['staging_file'] = str(pathspec)
+        journal['staging_path_count'] = len(paths)
         journal["state"] = "complete"
         journal_path.write_text(json.dumps(journal, indent=2) + "\n")
     except BaseException:
+        pathspec.unlink(missing_ok=True)
         for name, before, mode in reversed(completed):
             path = planned_path(root, name)
             if before is None:
@@ -244,16 +272,22 @@ def apply_transaction(root, changes, source, target, backup_parent):
     return backup
 
 
-def print_git_instructions(root):
-    print("\nTo review, stage, and commit the updated parent repository:")
+def print_git_instructions(root, backup):
+    pathspec = backup / 'migration-paths.nul'
+    print('\nMigration staging file: ' + str(pathspec))
+    if not pathspec.read_bytes():
+        print('No parent-repository files from this migration need staging.')
+        return
+    print("To review, stage, commit, and push the migration changes:")
     print("  cd " + shlex.quote(str(root)))
     print("  git status --short")
     print("  git diff")
-    print("  git add -A")
+    print("  git --literal-pathspecs add -A --pathspec-from-file=" + shlex.quote(str(pathspec)) + " --pathspec-file-nul")
     print("  git diff --cached")
     print('  git commit -m "Migrate template wiki tooling to plugin"')
-    print("git add -A also stages unrelated changes; review first and use explicit paths if needed.")
-    print("The ignored .llm-wiki checkout is a separate repository and is not staged here.")
+    print('  git push')
+    print('Only migration paths are selected; existing edits within those files are included, so review the staged diff.')
+    print('Git-local metadata, ignored untracked files, and the separate wiki are excluded.')
 
 
 def print_attachment_guidance(wiki):
@@ -329,13 +363,13 @@ def main(argv=None):
     backup_parent = args.backup_dir.expanduser().resolve()
     if backup_parent == root or root in backup_parent.parents:
         raise MigrationError("Choose a backup directory outside the target repository")
-    apply(root, changes, source, target, backup_parent)
+    backup = apply(root, changes, source, target, backup_parent)
     print("Migration complete. Changes are unstaged; review git diff before committing.")
     print("Plugins must be installed separately. No commits, pushes, or network operations were performed.")
     print("Use the plugin wiki-ask/wiki-enroll skills for agent communication; legacy /ask is retired.")
     print("If agent-comms becomes a separate plugin, enable only one provider of ask/enroll.")
     print_attachment_guidance(target)
-    print_git_instructions(root)
+    print_git_instructions(root, backup)
     return 0
 
 

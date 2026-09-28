@@ -80,3 +80,13 @@ journal and use an exclusive Git exclude lock. No existing wiki was migrated.
 See [AUDIT.md](AUDIT.md): 28 generic tests and 3 actual-plugin checks passed,
 13 historical tests skipped. Plugin checks include reproductions of two
 unfixed upstream behaviors, not assertions that those behaviors are correct.
+
+## Scoped staging — 2026-09-28
+
+Added end-to-end execution of the printed staging command in a disposable repo:
+tracked deletions and migration modifications were staged, while unrelated
+tracked edits, unrelated new files, ignored local settings and deleted untracked
+files were excluded. Additional tests cover created files with wildcard/newline
+names, empty staging lists for wiki-only migration and rollback when staging-list
+generation fails. Current default suite: 32 passed, 16 optional tests skipped
+(13 historical-profile and 3 external-plugin audit checks).

@@ -4,6 +4,7 @@ import io
 import json
 from pathlib import Path
 import shutil
+import shlex
 import subprocess
 import tempfile
 import unittest
@@ -212,6 +213,65 @@ class GenericMigration(unittest.TestCase):
         self.run_tool('--wiki-slug', self.slug, '--apply')
         self.assertTrue((self.root / 'wiki/other.wiki/.git').is_dir())
         git(self.root, 'check-ignore', 'wiki/other.wiki/Home.md')
+
+    def test_printed_staging_command_selects_only_migration_paths(self):
+        self.write('unrelated-tracked.txt', b'original')
+        git(self.root, 'add', 'unrelated-tracked.txt')
+        git(self.root, 'commit', '-qm', 'unrelated file')
+        self.write('unrelated-tracked.txt', b'new unrelated work')
+        self.write('unrelated-new.txt', b'untracked work')
+        with (self.root / '.gitignore').open('ab') as out:
+            out.write(b'.claude/settings.local.json\n')
+        self.write('.claude/settings.local.json', json.dumps(self.settings).encode())
+        self.write('wiki/agents/verification-gate.md', upstream('wiki/agents/verification-gate.md', self.slug))
+        output = io.StringIO()
+        with contextlib.redirect_stdout(output):
+            m.main([str(self.root), '--apply', '--backup-dir', str(self.base / 'backup with spaces')])
+        self.assertFalse(git(self.root, 'diff', '--cached', '--name-only'))
+        command = next(line.strip() for line in output.getvalue().splitlines()
+                       if line.strip().startswith('git --literal-pathspecs add'))
+        subprocess.run(shlex.split(command), cwd=self.root, check=True)
+        staged = set(git(self.root, 'diff', '--cached', '--name-only', '-z').split(b'\0')) - {b''}
+        journal = json.loads(next((self.base / 'backup with spaces').glob('*/journal.json')).read_text())
+        paths = set(Path(journal['staging_file']).read_bytes().split(b'\0')) - {b''}
+        self.assertEqual(paths, staged)
+        self.assertIn(b'CLAUDE.md', staged)
+        self.assertIn(b'llm-wiki.md', staged)  # tracked deletion
+        self.assertNotIn(b'unrelated-tracked.txt', staged)
+        self.assertNotIn(b'unrelated-new.txt', staged)
+        self.assertNotIn(b'.gitignore', staged)
+        self.assertNotIn(b'.claude/settings.local.json', staged)
+        self.assertNotIn(b'wiki/agents/verification-gate.md', staged)  # deleted untracked
+        self.assertNotIn(b'.git/info/exclude', paths)
+        self.assertNotIn(b'.llm-wiki', paths)
+        self.assertIn('  git push', output.getvalue())
+
+    def test_literal_staging_handles_special_names_and_new_files(self):
+        name = 'odd [name]*\nfile.txt'
+        self.write('odd n-other.txt', b'unrelated')
+        changes = [(name, None, b'migration-created')] + m.local_exclude_plan(self.root.resolve())
+        backup = m.apply(self.root.resolve(), changes, None, self.root / '.llm-wiki', self.base / 'backup')
+        git(self.root, '--literal-pathspecs', 'add', '-A',
+            '--pathspec-from-file=' + str(backup / 'migration-paths.nul'), '--pathspec-file-nul')
+        self.assertEqual(name.encode() + b'\0', git(self.root, 'diff', '--cached', '--name-only', '-z'))
+
+    def test_wiki_only_empty_staging_file_has_no_add_command(self):
+        self.run_tool('--wiki-only', '--apply')
+        backup = next((self.base / 'backups').iterdir())
+        self.assertEqual(b'', (backup / 'migration-paths.nul').read_bytes())
+        output = io.StringIO()
+        with contextlib.redirect_stdout(output):
+            m.print_git_instructions(self.root, backup)
+        self.assertNotIn('git --literal-pathspecs add', output.getvalue())
+        self.assertNotIn('git commit', output.getvalue())
+
+    def test_staging_manifest_failure_rolls_back(self):
+        before = self.snapshot()
+        with patch.object(m, 'staging_paths', side_effect=OSError('staging failure')):
+            with self.assertRaisesRegex(OSError, 'staging failure'):
+                self.run_tool('--apply')
+        self.assertEqual(before, self.snapshot())
+        self.assertFalse(list((self.base / 'backups').glob('*/migration-paths.nul')))
 
     def test_preview(self):
         before = self.snapshot()
