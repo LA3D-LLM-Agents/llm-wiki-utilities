@@ -5,6 +5,7 @@ from pathlib import Path
 import re
 import subprocess
 from claude_cleanup import clean as clean_instructions
+from retired_directories import is_clutter
 
 SOURCE_URL = 'https://github.com/crcresearch/llm-wiki-memory-template'
 SHARED = {'wiki/.gitignore', 'CLAUDE.md', 'AGENTS.md', 'README.md', '.gitignore', '.claude/settings.json', '.claude/settings.local.json'}
@@ -236,6 +237,8 @@ def cleanup(root, source, target, slug, catalog, safe_path, error):
     removed = [name.encode() for name, (_, after) in changes.items() if after is None]
     old_wiki = f'wiki/{slug}.wiki'.encode()
     for name in sorted(active):
+        if is_clutter(Path(name)):
+            continue  # Cache/desktop metadata is inventoried by the cleanup planner.
         after = changes[name][1] if name in changes else read(name)
         if after is not None and (old_wiki in after or any(path in after for path in removed)):
             conflicts.append(f'{name}: retained instructions/hooks reference legacy wiki or removed tooling')

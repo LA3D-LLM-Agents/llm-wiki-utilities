@@ -197,7 +197,7 @@ The migration inventories both committed template files and generated artifacts:
   `.features-enabled` is removed after retiring its agent-comms entry; other
   feature registrations are preserved.
 - Known template directories are removed bottom-up using `rmdir`, never recursive
-  deletion. `.DS_Store` files are backed up and removed only when they are the
+  deletion. `.DS_Store`, `Thumbs.db`, and `Desktop.ini` files are backed up and removed only when they are the
   final residue in an otherwise removable template directory. Directory paths
   and original modes are recorded in the journal and restored on rollback.
 - Unknown project files keep their containing directories. Preview and apply
@@ -236,3 +236,26 @@ and resulting diff, especially custom text inside legacy sections. Unbalanced,
 nested or reversed recognized markers still stop before writes because their
 boundaries are ambiguous. Customized executable scripts retain their existing
 review protection; this change concerns shared instruction cleanup only.
+
+## Clutter and leftover report
+
+Preview prints a categorized inventory of content that would remain in template
+locations. After successful apply, the tool performs a fresh scan and saves
+`leftovers.txt` beside the backup journal and staging file, printing its path
+and contents. The report distinguishes preserved project/unknown files,
+retained clutter, symlinks, separate repositories, and unverified empty folders.
+It scans `scripts`, `wiki`, `features`, `.claude`, `.cursor`, `.github` and `docs`;
+a leftover is a review item, not proof of an active plugin conflict.
+
+Desktop metadata (`.DS_Store`, `Thumbs.db`, `Desktop.ini`) can be removed when it
+is all that prevents a verified retired template directory from disappearing.
+The same applies to `.pyc`/`.pyo` files and `__pycache__` directories whose files
+belong to known template Python modules. Unknown bytecode or cache contents,
+symlinks, and directories containing project code are preserved and reported.
+Cache contents are not mistaken for active instruction text.
+
+Clutter bytes and directory modes participate in backup and rollback. No
+recursive forced deletion is used, and the scan does not traverse symlinks or
+nested Git repositories. Reports and staging files stay outside the project;
+report-generation failure rolls back the migration rather than reporting success
+without the promised inventory.

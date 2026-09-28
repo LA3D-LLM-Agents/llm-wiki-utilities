@@ -369,6 +369,51 @@ class GenericMigration(unittest.TestCase):
         self.run_tool('--apply')
         self.assertEqual(content, (self.root / 'CLAUDE.md').read_bytes())
 
+    def test_known_bytecode_and_desktop_clutter_removed_and_backed_up(self):
+        self.write('scripts/kg/__pycache__/wiki-to-jsonld.cpython-313.pyc', b'compiled wiki/init-wiki.sh')
+        self.write('scripts/kg/wiki-to-jsonld.pyo', b'old compiled')
+        self.write('scripts/kg/Thumbs.db', b'thumbnails')
+        self.write('scripts/kg/Desktop.ini', b'desktop settings')
+        self.run_tool('--apply')
+        self.assertFalse((self.root / 'scripts/kg').exists())
+        backup = next((self.base / 'backups').iterdir())
+        self.assertEqual(b'compiled wiki/init-wiki.sh', (backup / 'files/scripts/kg/__pycache__/wiki-to-jsonld.cpython-313.pyc').read_bytes())
+        self.assertTrue((backup / 'leftovers.txt').is_file())
+
+    def test_custom_cache_and_script_are_preserved_and_reported(self):
+        self.write('scripts/kg/__pycache__/project_code.cpython-313.pyc', b'custom')
+        self.write('scripts/kg/Thumbs.db', b'thumbnails')
+        self.write('scripts/project.py', b'print("project")')
+        (self.root / 'scripts/user-empty-folder').mkdir()
+        self.run_tool('--apply')
+        self.assertEqual(b'custom', (self.root / 'scripts/kg/__pycache__/project_code.cpython-313.pyc').read_bytes())
+        self.assertTrue((self.root / 'scripts/kg/Thumbs.db').exists())
+        report = next((self.base / 'backups').glob('*/leftovers.txt')).read_text()
+        self.assertIn('clutter retained', report)
+        self.assertIn('scripts/project.py [project/unknown file; preserved]', report)
+        self.assertIn('user-empty-folder/ [empty directory', report)
+
+    def test_cache_clutter_is_restored_on_failure(self):
+        self.write('scripts/kg/__pycache__/wiki-to-jsonld.cpython-313.pyc', b'compiled')
+        self.write('scripts/kg/Thumbs.db', b'thumbnails')
+        before = self.snapshot()
+        with patch.object(m, 'staging_paths', side_effect=OSError('after cache cleanup')):
+            with self.assertRaisesRegex(OSError, 'after cache cleanup'):
+                self.run_tool('--apply')
+        self.assertEqual(before, self.snapshot())
+        self.assertFalse(list((self.base / 'backups').glob('*/leftovers.txt')))
+
+    def test_cache_symlink_is_not_followed(self):
+        outside = self.base / 'outside.pyc'
+        outside.write_bytes(b'keep outside')
+        cache = self.root / 'scripts/kg/__pycache__'
+        cache.mkdir(parents=True)
+        (cache / 'wiki-to-jsonld.cpython-313.pyc').symlink_to(outside)
+        self.run_tool('--apply')
+        self.assertTrue((cache / 'wiki-to-jsonld.cpython-313.pyc').is_symlink())
+        self.assertEqual(b'keep outside', outside.read_bytes())
+        self.assertIn('[symlink; preserved]', next((self.base / 'backups').glob('*/leftovers.txt')).read_text())
+
     def test_preview(self):
         before = self.snapshot()
         self.run_tool()

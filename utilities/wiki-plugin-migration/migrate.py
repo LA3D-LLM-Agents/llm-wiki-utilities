@@ -259,10 +259,14 @@ def apply_transaction(root, changes, source, target, backup_parent, directories=
         pathspec.write_bytes(b''.join(path + b'\0' for path in paths))
         journal['staging_file'] = str(pathspec)
         journal['staging_path_count'] = len(paths)
+        leftovers = retired_directories.remaining_files(root)
+        (backup / 'leftovers.txt').write_text('\n'.join(leftovers) + ('\n' if leftovers else 'No leftovers in inspected template locations.\n'))
+        journal['leftover_report'] = str(backup / 'leftovers.txt')
         journal["state"] = "complete"
         journal_path.write_text(json.dumps(journal, indent=2) + "\n")
     except BaseException:
         pathspec.unlink(missing_ok=True)
+        (backup / 'leftovers.txt').unlink(missing_ok=True)
         for entry in reversed(removed_dirs):
             path = safe_path(root, entry["path"])
             path.mkdir()
@@ -371,9 +375,9 @@ def main(argv=None):
         if args.verbose:
             for entry in directories:
                 print("  RMDIR " + entry["path"])
-    remaining = retired_directories.remaining_files(root, changes, source)
+    remaining = retired_directories.remaining_files(root, changes, source, directories)
     if remaining:
-        print('Preserved files in scripts/wiki/features (not automatically disposable):')
+        print('Predicted leftovers in template locations (preserved for review):')
         for name in remaining:
             print('  ' + name)
     if not changes and not source and not directories:
@@ -391,6 +395,9 @@ def main(argv=None):
     print("Plugins must be installed separately. No commits, pushes, or network operations were performed.")
     print("Use the plugin wiki-ask/wiki-enroll skills for agent communication; legacy /ask is retired.")
     print("If agent-comms becomes a separate plugin, enable only one provider of ask/enroll.")
+    report = backup / 'leftovers.txt'
+    print('Post-migration leftover report: ' + str(report))
+    print(report.read_text().rstrip())
     print_attachment_guidance(target)
     print_git_instructions(root, backup)
     return 0

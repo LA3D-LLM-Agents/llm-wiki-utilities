@@ -125,3 +125,12 @@ CLAUDE.md as a blocker. Five unmatched script/command files and related referenc
 still require separate review. No live checkout was modified. Earlier audit notes
 about customized instruction blocks blocking migration describe the old behavior;
 this revision deliberately supersedes that policy for CLAUDE.md and AGENTS.md.
+
+## Clutter and leftovers — 2026-09-28
+
+Default suite: 44 passed, 16 optional checks skipped. Added cases demonstrate
+removal/backups of desktop metadata and known template bytecode, preservation
+and reporting of custom caches/project scripts/unknown empty folders, rollback
+after cache-directory removal, and preserving cache symlinks without following
+them. A cache containing an obsolete script path no longer triggers the active
+instruction guard. No existing project was migrated during this change.
