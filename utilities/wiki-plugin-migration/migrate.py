@@ -136,16 +136,63 @@ def atomic_write(path, content, mode):
             os.unlink(temp_name)
 
 
+def planned_path(root, name):
+    if name != '.git/info/exclude':
+        return safe_path(root, name)
+    path = Path(git(root, 'rev-parse', '--git-path', 'info/exclude'))
+    if not path.is_absolute():
+        path = root / path
+    for part in (path, *path.parents):
+        if part.is_symlink():
+            raise MigrationError(f'Symlink requires manual review: {part}')
+    return path
+
+
+def local_exclude_plan(root):
+    result = subprocess.run(['git', '-C', str(root), 'check-ignore', '--no-index',
+                             '--quiet', '.llm-wiki/'], capture_output=True)
+    if result.returncode == 0:
+        return []
+    if result.returncode != 1:
+        raise MigrationError('Git could not check the wiki ignore rule')
+    path = planned_path(root, '.git/info/exclude')
+    if path.with_name(path.name + '.lock').exists():
+        raise MigrationError('Git info/exclude is locked')
+    before = path.read_bytes() if path.exists() else None
+    content = before or b''
+    if b'/.llm-wiki/' in content.splitlines():
+        raise MigrationError('Existing local wiki exclusion is overridden; review Git ignore configuration')
+    newline = b'\r\n' if b'\r\n' in content else b'\n'
+    after = content + (newline if content and not content.endswith(b'\n') else b'') + b'/.llm-wiki/' + newline
+    return [('.git/info/exclude', before, after)]
+
+
 def apply(root, changes, source, target, backup_parent):
+    lock = None
+    if any(name == '.git/info/exclude' for name, _, _ in changes):
+        path = planned_path(root, '.git/info/exclude')
+        path.parent.mkdir(parents=True, exist_ok=True)
+        candidate = path.with_name(path.name + '.lock')
+        with candidate.open('xb'):
+            pass
+        lock = candidate
+    try:
+        return apply_transaction(root, changes, source, target, backup_parent)
+    finally:
+        if lock is not None:
+            lock.unlink()
+
+
+def apply_transaction(root, changes, source, target, backup_parent):
     # Backups include the original bytes and modes; the wiki itself is renamed intact.
     backup_parent.mkdir(parents=True, exist_ok=True)
     backup = Path(tempfile.mkdtemp(prefix="wiki-migration-", dir=backup_parent))
     os.chmod(backup, 0o700)
     records = []
     for name, before, after in changes:
-        path = root / name
+        path = planned_path(root, name)
         mode = path.stat().st_mode & 0o777 if before is not None else 0o644
-        records.append({"path": name, "existed": before is not None, "mode": mode})
+        records.append({"path": name, "existed": before is not None, "mode": mode, "resolved_path": str(path)})
         if before is not None:
             dest = backup / "files" / name
             dest.parent.mkdir(parents=True, exist_ok=True)
@@ -159,7 +206,7 @@ def apply(root, changes, source, target, backup_parent):
     try:
         # Recheck all inputs after backing up, before the first mutation.
         for name, before, after in changes:
-            path = safe_path(root, name)
+            path = planned_path(root, name)
             current = path.read_bytes() if present(path) else None
             if current != before:
                 raise MigrationError(f"File changed during migration: {name}")
@@ -169,19 +216,20 @@ def apply(root, changes, source, target, backup_parent):
             source.rename(target)
             moved = True
         for (name, before, after), record in zip(changes, records):
-            path = root / name
+            path = planned_path(root, name)
             if after is None:
                 path.unlink()
             else:
                 atomic_write(path, after, record["mode"])
             completed.append((name, before, record["mode"]))
+        git(root, 'check-ignore', '--no-index', '--quiet', '.llm-wiki/')
         if moved:
             validate_checkout(target)
         journal["state"] = "complete"
         journal_path.write_text(json.dumps(journal, indent=2) + "\n")
     except BaseException:
         for name, before, mode in reversed(completed):
-            path = root / name
+            path = planned_path(root, name)
             if before is None:
                 path.unlink()
             else:
@@ -211,7 +259,7 @@ def main(argv=None):
     parser.add_argument("repo", type=Path, help="repository root to migrate")
     parser.add_argument("--apply", action="store_true", help="apply the validated plan (default: preview only)")
     parser.add_argument("--wiki-slug", help="select wiki/<slug>.wiki if there are multiple")
-    parser.add_argument("--wiki-only", action="store_true", help="only relocate wiki and add .llm-wiki to .gitignore")
+    parser.add_argument("--wiki-only", action="store_true", help="only relocate wiki and ensure a local Git exclusion")
     parser.add_argument("--profile", type=Path, help="explicit legacy exact-file profile (optional)")
     parser.add_argument("--template-repo", type=Path, help="additional upstream template checkout for revision matching")
     parser.add_argument("--backup-dir", type=Path, default=Path.home() / ".local/share/llm-wiki/migration-backups")
@@ -225,13 +273,7 @@ def main(argv=None):
     source, target, wiki_state = wiki_plan(root, args.wiki_slug)
     if args.wiki_only:
         changes = []
-        if source or present(target):
-            ignore = safe_path(root, ".gitignore")
-            before = ignore.read_bytes() if ignore.exists() else None
-            text = (before or b"").decode("utf-8")
-            if not any(line.strip() in (".llm-wiki/", "/.llm-wiki/", ".llm-wiki", "/.llm-wiki") for line in text.splitlines()):
-                after = (text + ("\n" if text and not text.endswith("\n") else "") + "\n# Local wiki checkout\n/.llm-wiki/\n").encode()
-                changes.append((".gitignore", before, after))
+
     else:
         if args.profile:
             profile = load_profile(args.profile)
@@ -245,6 +287,9 @@ def main(argv=None):
                     catalog['files'].setdefault(name, []).extend(versions)
             changes = cleanup(root, source, target, args.wiki_slug, catalog, safe_path, MigrationError)
             print("Migration: upstream template to llm-wiki plugin")
+    # Local exclusions apply to every migration mode; shared .gitignore stays untouched.
+    changes = [change for change in changes if change[0] != ".gitignore"]
+    changes.extend(local_exclude_plan(root))
     deletes = sum(after is None for _, _, after in changes)
     print(f"Repository: {root}\nWiki: {wiki_state}")
     if source:

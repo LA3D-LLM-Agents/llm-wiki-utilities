@@ -163,6 +163,41 @@ class GenericMigration(unittest.TestCase):
             self.run_tool('--apply')
         self.assertEqual(before, self.snapshot())
 
+    def test_local_exclude_preserves_shared_gitignore(self):
+        before = (self.root / '.gitignore').read_bytes()
+        exclude = self.root / '.git/info/exclude'
+        exclude.write_bytes(b'# custom local rules\nprivate-notes/\n')
+        self.run_tool('--apply')
+        self.assertEqual(before, (self.root / '.gitignore').read_bytes())
+        self.assertEqual(b'# custom local rules\nprivate-notes/\n/.llm-wiki/\n', exclude.read_bytes())
+        git(self.root, 'check-ignore', '.llm-wiki/Home.md')
+        journal = json.loads(next((self.base / 'backups').glob('*/journal.json')).read_text())
+        self.assertTrue(any(x['path'] == '.git/info/exclude' for x in journal['files']))
+
+    def test_existing_exclusion_is_respected(self):
+        exclude = self.root / '.git/info/exclude'
+        exclude.write_bytes(b'.llm-wiki/\n')
+        self.run_tool('--apply')
+        self.assertEqual(b'.llm-wiki/\n', exclude.read_bytes())
+
+    def test_ignore_negation_rolls_back_local_exclude_and_wiki(self):
+        self.write('.gitignore', b'wiki/*.wiki/\n!/.llm-wiki/\n')
+        exclude = self.root / '.git/info/exclude'
+        before = exclude.read_bytes()
+        snapshot = self.snapshot()
+        with self.assertRaises(m.MigrationError):
+            self.run_tool('--apply')
+        self.assertEqual(before, exclude.read_bytes())
+        self.assertEqual(snapshot, self.snapshot())
+        self.assertFalse(exclude.with_name('exclude.lock').exists())
+
+    def test_wiki_only_uses_local_exclude(self):
+        before = (self.root / '.gitignore').read_bytes()
+        self.run_tool('--wiki-only', '--apply')
+        self.assertEqual(before, (self.root / '.gitignore').read_bytes())
+        self.assertIn(b'/.llm-wiki/', (self.root / '.git/info/exclude').read_bytes())
+        self.assertFalse(git(self.root, 'diff', '--name-only'))
+
     def test_preview(self):
         before = self.snapshot()
         self.run_tool()

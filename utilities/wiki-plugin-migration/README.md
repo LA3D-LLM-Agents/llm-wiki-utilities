@@ -32,7 +32,9 @@ python3 migrate.py /path/to/any-project --apply         # apply reviewed plan
   for review rather than silently removed or broadened.
 - Removes unchanged upstream wiki instruction snippets from `CLAUDE.md` and
   `AGENTS.md`. Preserves custom prose and updates exact old wiki path references.
-- Adds `/.llm-wiki/` to `.gitignore`, preserving existing rules.
+- Ensures `.llm-wiki/` is excluded locally through Git's `info/exclude`,
+  resolved using `git rev-parse --git-path info/exclude`, matching the plugin.
+  Respects existing effective exclusions and leaves shared `.gitignore` unchanged.
 - Checks retained active configuration, instructions, scripts and CI workflows
   for references to removed tooling or the old wiki path, stopping for review.
 
@@ -99,7 +101,7 @@ paths, submodules, linked worktrees and external Git object stores. It is safe t
 rerun after a successful migration; an immediate repeat makes no changes.
 
 `--wiki-only` remains an explicitly partial operation: it only moves the wiki and
-adds its ignore rule. It does not clean up hooks or instructions.
+ensures its local Git exclusion. It does not clean up hooks or instructions.
 
 The old `naval-sensor-fusion.json` is retained solely as an optional historical
 fixture. It is used only if explicitly passed with `--profile PATH`; general
@@ -142,3 +144,9 @@ coordinate their removal/disablement in llm-wiki with enabling the new provider.
 This tool does not install/uninstall plugins, inspect every user's enabled
 plugins, or claim the proposed separate plugin already exists. Plugin startup
 and command resolution still require verification in a fresh agent session.
+
+Local exclusion changes are backed up and rolled back with the migration. The
+journal records the resolved metadata path (which can differ in worktrees).
+An exclusive `info/exclude.lock` protects the update. Git verifies the effective
+ignore rule before success; a higher-priority negation causes rollback. Existing
+shared ignore rules, including rules from earlier migrations, are preserved.

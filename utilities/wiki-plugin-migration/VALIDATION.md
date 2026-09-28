@@ -60,3 +60,17 @@ scripts/agent-comms/README.md or enroll.sh. The five unmatched files and remaini
 CLAUDE.md/legacy-reference conflicts described above still block this local
 checkout. No migration was applied. Different reviewers' checkouts can have
 different conflicts; no claim is made that all naval checkouts are identical.
+
+## Local Git exclusions — 2026-09-27
+
+Checked plugin commit f45edcf83b9b1790305086a67a779e016af26b3f, specifically
+codex/plugins/llm-wiki/skills/wiki-init/scripts/ensure-local-exclude.py and the
+corresponding session-start hook. The plugin uses Git-local info/exclude,
+resolved through git rev-parse --git-path info/exclude, rather than editing
+shared .gitignore. The migration now follows that behavior in all modes.
+
+Current generic suite: 26 passed; 13 optional historical tests skipped.
+New cases verify shared .gitignore preservation, existing local-rule
+preservation, wiki-only migration, and full rollback when a shared negation
+overrides the local exclusion. Exclusion updates participate in the backup
+journal and use an exclusive Git exclude lock. No existing wiki was migrated.

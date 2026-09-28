@@ -222,13 +222,6 @@ def cleanup(root, source, target, slug, catalog, safe_path, error):
         if after and b'<!-- feature:agent-comms -->' in after:
             conflicts.append(f'{name}: customized agent-comms block; reconcile with plugin ask/enroll')
 
-    before = read('.gitignore')
-    after = before or b''
-    if b'/.llm-wiki/' not in after.splitlines():
-        after += (b'\n' if after and not after.endswith(b'\n') else b'') + b'\n# Plugin project memory\n/.llm-wiki/\n'
-    if after != before:
-        changes['.gitignore'] = (before, after)
-
     # Do not leave active instructions or hooks pointing at removed tooling.
     active = set(SHARED - {'README.md', '.gitignore'})
     for folder in ('.claude', '.cursor', 'scripts', '.github/workflows'):

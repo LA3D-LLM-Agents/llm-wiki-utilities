@@ -94,6 +94,7 @@ class MigrationTests(unittest.TestCase):
         self.assertEqual(app_head, git(self.root, "rev-parse", "HEAD"))
         self.assertFalse(git(self.root, "diff", "--cached", "--name-only"))
         profile = migration.load_profile(HERE / "naval-sensor-fusion.json")
+        profile["files"] = [item for item in profile["files"] if item["path"] != ".gitignore"]
         self.assertEqual([], migration.file_plan(self.root, profile))
         self.assertFalse(self.wiki.exists())
         self.assertTrue(list(self.backup.glob("*/journal.json")))
