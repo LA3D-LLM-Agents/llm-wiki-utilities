@@ -6,7 +6,7 @@ import re
 import subprocess
 
 SOURCE_URL = 'https://github.com/crcresearch/llm-wiki-memory-template'
-SHARED = {'CLAUDE.md', 'AGENTS.md', 'README.md', '.gitignore', '.claude/settings.json', '.claude/settings.local.json'}
+SHARED = {'wiki/.gitignore', 'CLAUDE.md', 'AGENTS.md', 'README.md', '.gitignore', '.claude/settings.json', '.claude/settings.local.json'}
 HOOKS = {
     '.claude/hooks/ensure-wiki.py': 'wiki/agents/claude-code/templates/ensure-wiki.py',
     '.claude/hooks/session-start.sh': 'wiki/agents/claude-code/templates/session-start-hook.sh',
@@ -223,7 +223,7 @@ def cleanup(root, source, target, slug, catalog, safe_path, error):
             conflicts.append(f'{name}: customized agent-comms block; reconcile with plugin ask/enroll')
 
     # Do not leave active instructions or hooks pointing at removed tooling.
-    active = set(SHARED - {'README.md', '.gitignore'})
+    active = set(SHARED - {'README.md', '.gitignore', 'wiki/.gitignore'})
     for folder in ('.claude', '.cursor', 'scripts', '.github/workflows'):
         directory = safe_path(root, folder)
         if directory.exists():

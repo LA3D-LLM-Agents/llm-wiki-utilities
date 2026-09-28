@@ -75,6 +75,8 @@ def wiki_plan(root, slug):
             raise MigrationError("Legacy wiki is tracked by the parent repository (or is a submodule)")
         return source, target, "move"
     if present(target):
+        if git(root, 'ls-files', '--', '.llm-wiki'):
+            raise MigrationError('.llm-wiki is tracked by the parent repository; reconcile it before migration')
         validate_checkout(target)
         return None, target, "already attached"
     if slug:
@@ -254,6 +256,25 @@ def print_git_instructions(root):
     print("The ignored .llm-wiki checkout is a separate repository and is not staged here.")
 
 
+def print_attachment_guidance(wiki):
+    if not wiki.is_dir():
+        print('No wiki is attached. Use wiki-init and choose GitHub or offline storage explicitly.')
+        return
+    schemas = sorted(wiki.glob('SCHEMA_*.md'))
+    if len(schemas) == 1:
+        name = schemas[0].stem[len('SCHEMA_'):]
+        print('Preserved wiki namespace: ' + name)
+        print('Existing schema is retained; wiki-init does not upgrade its contents.')
+        print('If wiki-init is needed, preserve the namespace with --repo-name ' + shlex.quote(name) + '.')
+        for filename in (f'index_{name}.md', f'log_{name}.md'):
+            if not (wiki / filename).is_file():
+                print('Review missing navigation file: .llm-wiki/' + filename)
+    elif (wiki / 'SCHEMA.md').is_file():
+        print('Bare SCHEMA.md is accepted by init, but startup expects namespaced navigation/schema; review those files.')
+    else:
+        print('Review missing or ambiguous wiki schema/namespace before using wiki-init; initialization can create and commit pages.')
+
+
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("repo", type=Path, help="repository root to migrate")
@@ -288,7 +309,7 @@ def main(argv=None):
             changes = cleanup(root, source, target, args.wiki_slug, catalog, safe_path, MigrationError)
             print("Migration: upstream template to llm-wiki plugin")
     # Local exclusions apply to every migration mode; shared .gitignore stays untouched.
-    changes = [change for change in changes if change[0] != ".gitignore"]
+    changes = [change for change in changes if change[0] not in {".gitignore", "wiki/.gitignore"}]
     changes.extend(local_exclude_plan(root))
     deletes = sum(after is None for _, _, after in changes)
     print(f"Repository: {root}\nWiki: {wiki_state}")
@@ -300,6 +321,7 @@ def main(argv=None):
             print(f"  {'DELETE' if after is None else 'WRITE '} {name}")
     if not changes and not source:
         print("No changes needed.")
+        print_attachment_guidance(target)
         return 0
     if not args.apply:
         print("Preview only. Run again with --apply to perform this plan.")
@@ -312,6 +334,7 @@ def main(argv=None):
     print("Plugins must be installed separately. No commits, pushes, or network operations were performed.")
     print("Use the plugin wiki-ask/wiki-enroll skills for agent communication; legacy /ask is retired.")
     print("If agent-comms becomes a separate plugin, enable only one provider of ask/enroll.")
+    print_attachment_guidance(target)
     print_git_instructions(root)
     return 0
 

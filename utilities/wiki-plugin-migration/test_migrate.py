@@ -198,6 +198,21 @@ class GenericMigration(unittest.TestCase):
         self.assertIn(b'/.llm-wiki/', (self.root / '.git/info/exclude').read_bytes())
         self.assertFalse(git(self.root, 'diff', '--name-only'))
 
+    def test_tracked_existing_attachment_is_rejected(self):
+        self.wiki.rename(self.root / '.llm-wiki')
+        git(self.root, 'add', '-f', '.llm-wiki')
+        git(self.root, 'commit', '-qm', 'Accidentally tracked nested wiki')
+        with self.assertRaisesRegex(m.MigrationError, 'tracked by the parent'):
+            self.run_tool('--wiki-only', '--apply')
+
+    def test_other_legacy_wiki_remains_ignored(self):
+        self.write('.gitignore', b'# no shared wiki exclusions\n')
+        self.write('wiki/.gitignore', upstream('wiki/.gitignore', self.slug))
+        shutil.copytree(self.wiki, self.root / 'wiki/other.wiki')
+        self.run_tool('--wiki-slug', self.slug, '--apply')
+        self.assertTrue((self.root / 'wiki/other.wiki/.git').is_dir())
+        git(self.root, 'check-ignore', 'wiki/other.wiki/Home.md')
+
     def test_preview(self):
         before = self.snapshot()
         self.run_tool()

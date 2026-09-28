@@ -74,3 +74,9 @@ New cases verify shared .gitignore preservation, existing local-rule
 preservation, wiki-only migration, and full rollback when a shared negation
 overrides the local exclusion. Exclusion updates participate in the backup
 journal and use an exclusive Git exclude lock. No existing wiki was migrated.
+
+## Expanded audit — 2026-09-27
+
+See [AUDIT.md](AUDIT.md): 28 generic tests and 3 actual-plugin checks passed,
+13 historical tests skipped. Plugin checks include reproductions of two
+unfixed upstream behaviors, not assertions that those behaviors are correct.

@@ -34,7 +34,7 @@ python3 migrate.py /path/to/any-project --apply         # apply reviewed plan
   `AGENTS.md`. Preserves custom prose and updates exact old wiki path references.
 - Ensures `.llm-wiki/` is excluded locally through Git's `info/exclude`,
   resolved using `git rev-parse --git-path info/exclude`, matching the plugin.
-  Respects existing effective exclusions and leaves shared `.gitignore` unchanged.
+  Respects existing effective exclusions and leaves shared `.gitignore` and `wiki/.gitignore` unchanged.
 - Checks retained active configuration, instructions, scripts and CI workflows
   for references to removed tooling or the old wiki path, stopping for review.
 
@@ -150,3 +150,12 @@ journal records the resolved metadata path (which can differ in worktrees).
 An exclusive `info/exclude.lock` protects the update. Git verifies the effective
 ignore rule before success; a higher-priority negation causes rollback. Existing
 shared ignore rules, including rules from earlier migrations, are preserved.
+
+## Compatibility audit
+
+See [AUDIT.md](AUDIT.md) for reproduced plugin init issues, migration fixes and
+the actual-plugin test command. An existing schema is preserved, not upgraded.
+After a rename, use its original namespace with `--repo-name` if running init;
+the migration prints this reminder. Startup and init currently infer namespaces
+differently. Review missing schema/index/log files before relying on the memory
+snapshot. An already-initialized init result alone does not verify exclusion.
