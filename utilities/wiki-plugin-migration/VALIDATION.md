@@ -111,3 +111,17 @@ empty template scripts subdirectories; all three agent-msg files were unchanged.
 Executing the generated staging command selected cleanup deletions and excluded
 agent-msg. This was a residue-copy check, not a migration of the live project or
 a complete clone of its research data. The live checkout was inspected only.
+
+## Customized shared instructions — 2026-09-28
+
+Default suite: 40 passed, 16 optional checks skipped. Updated checks verify
+customized known marker blocks migrate without blocking; new cases exercise
+unmarked wiki sections, fenced heading examples, preserved research prose,
+unknown feature markers, current plugin guidance, unrelated graph sections,
+original-file backups and refusal of unbalanced markers before mutation.
+
+A read-only preview of the local naval-sensor-fusion checkout no longer reports
+CLAUDE.md as a blocker. Five unmatched script/command files and related references
+still require separate review. No live checkout was modified. Earlier audit notes
+about customized instruction blocks blocking migration describe the old behavior;
+this revision deliberately supersedes that policy for CLAUDE.md and AGENTS.md.

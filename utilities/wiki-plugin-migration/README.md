@@ -30,8 +30,9 @@ python3 migrate.py /path/to/any-project --apply         # apply reviewed plan
   graph tooling and overlay setup. Generic Python permissions and user
   allow/deny/ask entries are preserved. Custom legacy permissions are flagged
   for review rather than silently removed or broadened.
-- Removes unchanged upstream wiki instruction snippets from `CLAUDE.md` and
-  `AGENTS.md`. Preserves custom prose and updates exact old wiki path references.
+- Cleans legacy wiki instructions from `CLAUDE.md` and `AGENTS.md`, including
+  customized wording inside recognized template blocks. Preserves unrelated
+  project guidance and current plugin instructions; backs up the original files.
 - Ensures `.llm-wiki/` is excluded locally through Git's `info/exclude`,
   resolved using `git rev-parse --git-path info/exclude`, matching the plugin.
   Respects existing effective exclusions and leaves shared root `.gitignore` unchanged. A stock `wiki/.gitignore` is
@@ -154,8 +155,8 @@ Exact upstream feature sections in CLAUDE.md/AGENTS.md are removed too, and only
 the `agent-comms` line is removed from `.features-enabled`. Unchanged feature
 source files under `features/agent-comms/` are retired with the old installer.
 
-Custom/unknown payloads and customized feature blocks stop the entire migration
-for review, even when they contain no old-path references. Other features are
+Custom/unknown executable payloads stop migration for review. Recognized legacy
+agent-comms instruction blocks are removed even when their wording was customized. Other features are
 preserved. The tool does not run the old feature-disable script, whose recursive
 deletions would bypass the byte-match protection. Federation cards, wiki contents,
 remotes and GitHub registration are not changed; there is no re-enrollment.
@@ -213,3 +214,25 @@ For manual recovery, restore journaled directories in parent-first order with
 recorded modes before restoring backed-up files and moving the wiki back. Empty
 directory removal itself needs no Git staging; tracked artifact deletions are
 included in `migration-paths.nul`.
+
+## Customized CLAUDE.md and AGENTS.md
+
+These shared instruction files no longer need to match upstream template prose.
+The migration removes the contents and delimiters of the recognized
+`lw:memory-boundary`, `lw:wiki-maintenance`, and `feature:agent-comms` blocks.
+This includes customized text within those legacy regions. Unknown markers are
+not treated as template-owned blocks.
+
+Unmarked legacy sections such as `Wiki`, `Wiki maintenance behavior`, and
+`Knowledge Graph` are removed, including their subsections, only when they
+reference the old wiki location or retired template tooling. Elsewhere, lines
+referencing retired tooling are removed; fenced examples and HTML comments
+containing such references are removed as whole units to avoid leaving broken
+syntax. Other old wiki path references are rewritten to `.llm-wiki`, and legacy
+`/ask` invocations become `/wiki-ask`. Current plugin guidance is preserved.
+
+The full original files are saved in the migration backup. Review the preview
+and resulting diff, especially custom text inside legacy sections. Unbalanced,
+nested or reversed recognized markers still stop before writes because their
+boundaries are ambiguous. Customized executable scripts retain their existing
+review protection; this change concerns shared instruction cleanup only.

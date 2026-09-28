@@ -4,6 +4,7 @@ import json
 from pathlib import Path
 import re
 import subprocess
+from claude_cleanup import clean as clean_instructions
 
 SOURCE_URL = 'https://github.com/crcresearch/llm-wiki-memory-template'
 SHARED = {'wiki/.gitignore', 'CLAUDE.md', 'AGENTS.md', 'README.md', '.gitignore', '.claude/settings.json', '.claude/settings.local.json'}
@@ -111,30 +112,14 @@ def cleanup(root, source, target, slug, catalog, safe_path, error):
         else:
             changes[name] = (before, None)
 
-    # Delete exact managed snippets only. Sentinels alone are not proof that
-    # their contents are disposable: setup can wrap pre-existing custom prose.
-    snippets = set()
-    for name, variants in originals.items():
-        if name.endswith('claude-md-snippet.md'):
-            for raw in variants:
-                for match in re.finditer(rb'<!-- lw:([^ >]+) -->\r?\n.*?<!-- /lw:\1 -->', raw, re.S):
-                    snippets.add(match.group())
-                    snippets.add(re.sub(rb'^<!--[^\n]+-->\r?\n|\r?\n<!--[^\n]+-->$', b'', match.group()))
-    for raw in originals.get('features/agent-comms/CLAUDE.section.md', set()):
-        snippets.add(b'<!-- feature:agent-comms -->\n' + raw.rstrip(b'\n') + b'\n<!-- /feature:agent-comms -->')
-    for name in ('CLAUDE.md', 'CLAUDE.md.template'):
-        for raw in originals.get(name, set()):
-            for match in re.finditer(rb'^## Wiki[^\n]*\n.*?(?=^## |\Z)', raw, re.M | re.S):
-                snippets.add(match.group().rstrip())
+    # The migration owns legacy wiki instruction regions even when their
+    # wording was customized. Other project prose and unknown markers remain.
+    retired = [name for name, (_, after) in changes.items() if after is None]
     for name in ('CLAUDE.md', 'AGENTS.md'):
         before = read(name)
         if before is None:
             continue
-        after = before
-        for snippet in sorted(snippets, key=len, reverse=True):
-            after = after.replace(snippet, b'')
-        # Preserve project instructions; only exact old wiki path tokens change.
-        after = re.sub(rb'(?<![\w./-])wiki/' + re.escape(slug.encode()) + rb'\.wiki(?=$|[^\w.-])', b'.llm-wiki', after)
+        after = clean_instructions(before, slug, retired, error)
         if after != before:
             changes[name] = (before, after)
 

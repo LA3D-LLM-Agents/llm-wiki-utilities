@@ -156,13 +156,11 @@ class GenericMigration(unittest.TestCase):
             self.run_tool('--apply')
         self.assertEqual(before, self.snapshot())
 
-    def test_custom_feature_block_blocks_even_without_path_references(self):
+    def test_custom_feature_block_is_removed(self):
         self.install_feature_fixture()
         self.write('CLAUDE.md', b'<!-- feature:agent-comms -->\nMy custom routing policy\n<!-- /feature:agent-comms -->')
-        before = self.snapshot()
-        with self.assertRaisesRegex(m.MigrationError, 'customized agent-comms block'):
-            self.run_tool('--apply')
-        self.assertEqual(before, self.snapshot())
+        self.run_tool('--apply')
+        self.assertEqual(b'', (self.root / 'CLAUDE.md').read_bytes())
 
     def test_local_exclude_preserves_shared_gitignore(self):
         before = (self.root / '.gitignore').read_bytes()
@@ -331,6 +329,46 @@ class GenericMigration(unittest.TestCase):
             self.assertTrue((self.root / name).is_dir(), name)
             self.assertEqual(mode, (self.root / name).stat().st_mode & 0o777)
 
+    def test_custom_wiki_sections_and_commands_removed_project_guidance_retained(self):
+        before = (f'# Project\nKeep research guidance.\n\n## Wiki\nCustom wiki/{self.slug}.wiki instructions.\n'
+                  '### Knowledge Graph\nUse scripts/kg/build-graph.sh with our custom flags.\n'
+                  '```sh\n# command example heading\nbash wiki/init-wiki.sh\n```\n'
+                  '## Experiments\nKeep seed 42.\nRun scripts/kg/build-graph.sh after testing.\n'
+                  '```sh\npytest tests/\n```\n'
+                  '<!-- feature:other -->\nKeep other feature.\n<!-- /feature:other -->\n')
+        self.write('CLAUDE.md', before.encode())
+        self.write('AGENTS.md', before.encode())
+        self.run_tool('--apply')
+        for name in ('CLAUDE.md', 'AGENTS.md'):
+            after = (self.root / name).read_text()
+            self.assertIn('Keep research guidance.', after)
+            self.assertIn('## Experiments\nKeep seed 42.', after)
+            self.assertIn('```sh\npytest tests/\n```', after)
+            self.assertIn('Keep other feature.', after)
+            self.assertNotIn('## Wiki', after)
+            self.assertNotIn('scripts/kg', after)
+            self.assertNotIn('wiki/init-wiki.sh', after)
+        backup = next((self.base / 'backups').iterdir())
+        self.assertEqual(before.encode(), (backup / 'files/CLAUDE.md').read_bytes())
+
+    def test_unrelated_graph_section_survives(self):
+        self.write('CLAUDE.md', b'# Project\n## Knowledge Graph\nResearch graph experiments use src/graph.py.\n')
+        self.run_tool('--apply')
+        self.assertIn('Research graph experiments', (self.root / 'CLAUDE.md').read_text())
+
+    def test_malformed_instruction_markers_fail_without_edits(self):
+        self.write('CLAUDE.md', b'Project guidance\n<!-- lw:wiki-maintenance -->\nunterminated block')
+        before = self.snapshot()
+        with self.assertRaisesRegex(m.MigrationError, 'Unbalanced'):
+            self.run_tool('--apply')
+        self.assertEqual(before, self.snapshot())
+
+    def test_current_plugin_wiki_instructions_survive(self):
+        content = b'# Project\n## Wiki\nUse .llm-wiki/ and the llm-wiki plugin.\n'
+        self.write('CLAUDE.md', content)
+        self.run_tool('--apply')
+        self.assertEqual(content, (self.root / 'CLAUDE.md').read_bytes())
+
     def test_preview(self):
         before = self.snapshot()
         self.run_tool()
@@ -398,11 +436,11 @@ class GenericMigration(unittest.TestCase):
         self.run_tool('--apply')
         self.assertEqual(b'# Custom\nMy instructions\n', (self.root / 'CLAUDE.md').read_bytes())
 
-    def test_custom_managed_snippet_blocks(self):
+    def test_custom_managed_snippet_is_removed(self):
         self.write('CLAUDE.md', b'<!-- lw:wiki-maintenance -->\nCustom wiki/agents/verification-gate.md\n<!-- /lw:wiki-maintenance -->')
         self.write('wiki/agents/verification-gate.md', upstream('wiki/agents/verification-gate.md', self.slug))
-        with self.assertRaisesRegex(m.MigrationError, 'retained instructions'):
-            self.run_tool('--apply')
+        self.run_tool('--apply')
+        self.assertEqual(b'', (self.root / 'CLAUDE.md').read_bytes())
 
     def test_collision(self):
         shutil.copytree(self.wiki, self.root / '.llm-wiki')
