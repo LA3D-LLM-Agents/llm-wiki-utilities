@@ -38,7 +38,7 @@ These findings need upstream fixes; no plugin/template commits were made here.
 - Removing the template's `wiki/.gitignore` exposed an unselected legacy wiki
   when migrating one of several. A real `git check-ignore` assertion failed
   before the fix. Root `.gitignore` and `wiki/.gitignore` are now preserved in
-  all modes, including explicit historical profiles.
+  all supported migration modes.
 
 ## Important behavior differences
 
@@ -64,7 +64,7 @@ WIKI_PLUGIN_ROOT=/path/to/llm-wiki-colab/codex/plugins/llm-wiki \
 ```
 
 At the audited versions: 28 generic migration tests and 3 actual-plugin audit
-checks passed; 13 optional historical-profile tests were skipped. Two plugin
+checks passed; optional external-plugin checks require a supplied plugin checkout. Two plugin
 checks intentionally reproduce the unfixed issues above; their passing means
 reproduction succeeded, not that the upstream issues are resolved. These checks
 are skipped unless WIKI_PLUGIN_ROOT is supplied and should be reassessed when

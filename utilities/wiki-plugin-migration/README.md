@@ -127,22 +127,16 @@ rerun after a successful migration; an immediate repeat makes no changes.
 `--wiki-only` remains an explicitly partial operation: it only moves the wiki and
 ensures its local Git exclusion. It does not clean up hooks or instructions.
 
-The old `naval-sensor-fusion.json` is retained solely as an optional historical
-fixture. It is used only if explicitly passed with `--profile PATH`; general
-migration does not load it.
-
 ## Tests
 
 ```sh
 python3 -m unittest discover -s . -v
 ```
 
-Tests use disposable repositories and the bundled upstream catalog; no Naval
-Sensor Fusion checkout is required. They cover multiple identities, mixed custom
+Tests use synthetic disposable repositories and the public upstream template catalog. They cover multiple identities, mixed custom
 settings, managed prose, dirty wiki preservation, preview, repeat runs, collisions,
 custom-file protection, symlinks, staged parent work and injected-failure rollback.
-An optional historical-profile suite runs when `MIGRATION_SOURCE_REPO` points to
-a checkout containing the old fixture commit; otherwise it is explicitly skipped.
+Optional plugin compatibility checks use a separately supplied upstream plugin checkout.
 
 ## Agent communication: one active provider
 

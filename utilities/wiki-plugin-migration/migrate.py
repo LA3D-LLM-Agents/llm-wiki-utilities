@@ -1,8 +1,6 @@
 #!/usr/bin/env python3
 """Preview/apply template-to-plugin migration for an llm-wiki repository."""
 import argparse
-import base64
-import hashlib
 import json
 import os
 from pathlib import Path, PurePosixPath
@@ -83,47 +81,6 @@ def wiki_plan(root, slug):
     if slug:
         raise MigrationError(f"No wiki found at wiki/{slug}.wiki or .llm-wiki")
     return None, target, "no local wiki; plugin initialization is a separate step"
-
-
-def load_profile(path):
-    data = json.loads(path.read_text())
-    if data.get("version") != 1:
-        raise MigrationError("Unsupported migration profile version")
-    seen = set()
-    for item in data["files"]:
-        name = item["path"]
-        if name in seen or name.split("/")[0] == ".llm-wiki":
-            raise MigrationError(f"Duplicate or forbidden profile path: {name}")
-        seen.add(name)
-        if item["action"] not in ("create", "replace", "delete"):
-            raise MigrationError(f"Invalid profile action: {name}")
-        if item["action"] != "delete":
-            content = base64.b64decode(item["after_base64"], validate=True)
-            if hashlib.sha256(content).hexdigest() != item["after_sha256"]:
-                raise MigrationError(f"Invalid profile checksum: {name}")
-    return data
-
-
-def file_plan(root, profile):
-    changes, conflicts = [], []
-    for item in profile["files"]:
-        path = safe_path(root, item["path"])
-        exists = present(path)
-        if exists and not path.is_file():
-            conflicts.append(f"{item['path']}: expected a regular file")
-            continue
-        content = path.read_bytes() if exists else None
-        digest = hashlib.sha256(content).hexdigest() if exists else None
-        after = None if item["action"] == "delete" else base64.b64decode(item["after_base64"])
-        if content == after:
-            continue
-        if digest != item.get("before_sha256"):
-            conflicts.append(f"{item['path']}: differs from both audited original and migrated version")
-            continue
-        changes.append((item["path"], content, after))
-    if conflicts:
-        raise MigrationError("Customized/missing files require manual review:\n  " + "\n  ".join(conflicts))
-    return changes
 
 
 def atomic_write(path, content, mode):
@@ -328,7 +285,6 @@ def main(argv=None):
     parser.add_argument("--apply", action="store_true", help="apply the validated plan (default: preview only)")
     parser.add_argument("--wiki-slug", help="select wiki/<slug>.wiki if there are multiple")
     parser.add_argument("--wiki-only", action="store_true", help="only relocate wiki and ensure a local Git exclusion")
-    parser.add_argument("--profile", type=Path, help="explicit legacy exact-file profile (optional)")
     parser.add_argument("--template-repo", type=Path, help="additional upstream template checkout for revision matching")
     parser.add_argument("--backup-dir", type=Path, default=Path.home() / ".local/share/llm-wiki/migration-backups")
     parser.add_argument("--verbose", action="store_true", help="list each file action")
@@ -345,18 +301,13 @@ def main(argv=None):
         changes = []
 
     else:
-        if args.profile:
-            profile = load_profile(args.profile)
-            changes = file_plan(root, profile)
-            print(f"Explicit profile: {profile['name']}")
-        else:
-            catalog = json.loads(Path(__file__).with_name("template-catalog.json").read_text())
-            if args.template_repo:
-                extra = reference_catalog(args.template_repo)
-                for name, versions in extra['files'].items():
-                    catalog['files'].setdefault(name, []).extend(versions)
-            changes = cleanup(root, source, target, args.wiki_slug, catalog, safe_path, MigrationError)
-            print("Migration: upstream template to llm-wiki plugin")
+        catalog = json.loads(Path(__file__).with_name("template-catalog.json").read_text())
+        if args.template_repo:
+            extra = reference_catalog(args.template_repo)
+            for name, versions in extra['files'].items():
+                catalog['files'].setdefault(name, []).extend(versions)
+        changes = cleanup(root, source, target, args.wiki_slug, catalog, safe_path, MigrationError)
+        print("Migration: upstream template to llm-wiki plugin")
     # Local exclusions apply to every migration mode; shared .gitignore stays untouched.
     changes = [change for change in changes if change[0] not in {".gitignore", "wiki/.gitignore"}]
     if catalog is not None:
